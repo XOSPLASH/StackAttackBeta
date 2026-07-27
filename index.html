@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Stack Attack</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+
+<body>
+
+    <h1 class="game-title pop-up">
+        Stack Attack
+    </h1>
+
+    <div class="game-ui">
+
+        <!-- CARD INFORMATION PANEL -->
+        <div class="card-panel panel">
+
+            <div class="panel-title">
+                Card Panel
+            </div>
+
+
+            <div class="stat-box">
+                <p class="pop-up" id="cardIcon">
+                    Card Icon
+                </p>
+            </div>
+            
+            <div class="stat-box">
+                    <p class="pop-up" id="cardName">
+                        Card Name
+                    </p>
+            </div>
+
+            <div class="tile-info" id="tileInfo">
+
+                <div class="stat-box">
+                    <p class="pop-up" id="cardHealth">
+                        Card Health
+                    </p>
+                </div>
+
+                <div class="stat-box">
+                    <p class="pop-up" id="cardDamage">
+                        Card Damage
+                    </p>
+                </div>
+                
+                <div class="stat-box">
+                    <p class="pop-up" id="tileType">
+                        Tile Type
+                    </p>
+                </div>
+
+                <div class="stat-box">
+                    <p class="pop-up" id="tilePosition">
+                        Tile Position
+                    </p>
+                </div>
+
+            </div>
+
+
+        </div>
+
+
+        <!-- GAME BOARD -->
+        <div class="board-container">
+
+            <div class="board" id="board">
+            </div>
+            
+        </div>
+
+
+        <!-- SHOP PANEL -->
+        <div class="shop-panel panel">
+
+            <div class="panel-title">
+                Shop
+            </div>
+
+            <div class="shop" id="shop">
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <script src="cards.js"></script>
+    <script src="shop.js"></script>
+    <script src="board.js"></script>
+
+</body>
+
+</html>
