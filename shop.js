@@ -4,6 +4,10 @@ const cardIcon = document.getElementById("cardIcon");
 const cardName = document.getElementById("cardName");
 const cardDamage = document.getElementById("cardDamage");
 const cardHealth = document.getElementById("cardHealth");
+const cardRange = document.getElementById("cardRange");
+const cardMove = document.getElementById("cardMove");
+const cardAP = document.getElementById("cardAP");
+const cardAbility = document.getElementById("cardAbility");
 
 const tileType = document.getElementById("tileType");
 const tilePosition = document.getElementById("tilePosition");
@@ -18,10 +22,7 @@ cards.forEach(card => {
 
     shopCard.innerHTML = `
         <h3>${card.icon} ${card.name}</h3>
-        <p>${card.type}</p>
         <p>Cost: ${card.cost}</p>
-        <p>HP: ${card.health}</p>
-        <p>DMG: ${card.damage}</p>
     `;
 
     shopCard.addEventListener("click", function() {
@@ -35,18 +36,25 @@ cards.forEach(card => {
         selectedCard = card;
         selectedCardElement = shopCard;
 
+        cardIcon.classList.remove("team-blue", "team-red");
+
         cardIcon.classList.remove("hidden");
+        cardAbility.classList.remove("hidden");
         cardName.classList.remove("hidden");
+        cardAP.classList.remove("hidden");
         cardDamage.classList.remove("hidden");
         cardHealth.classList.remove("hidden");
-        tileType.classList.remove("hidden");
-        tilePosition.classList.remove("hidden");
+        cardRange.classList.remove("hidden");
+        cardMove.classList.remove("hidden");
         cardIcon.textContent = `${card.icon}`;
+        cardAbility.classList.remove("hidden");
+        cardAbility.textContent = `${card.ability}`;
         cardName.textContent = `${card.name}`;
+        cardAP.textContent = `AP: ${card.ap}`;
         cardDamage.textContent = `DMG: ${card.damage}`;
         cardHealth.textContent = `HP: ${card.health}`;
-        tileType.textContent = `Type: ${card.type} • ${card.rarity}`;
-        tilePosition.textContent = `Move: ${card.move} • Range: ${card.range}`;
+        cardRange.textContent = `Range: ${card.range}`;
+        cardMove.textContent = `Move: ${card.move}`;
     });
 
     shop.appendChild(shopCard);
