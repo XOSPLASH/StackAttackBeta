@@ -1,105 +1,91 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
+    <meta charset="UTF-8">
     <title>Stack Attack</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="icon" href="StackAttackIcon.png" type="image/png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300..700&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="style.css">
 </head>
 
-
 <body>
 
-    <h1 class="game-title pop-up">
-        Stack Attack
-    </h1>
+    <div id="lobbyModal" class="lobby-modal">
+        <div class="lobby-card">
+            <h2>Stack Attack Multiplayer</h2>
+            <p>Create a room or enter a 4-digit code to join a game.</p>
+            <div class="lobby-controls">
+                <button id="createRoomBtn" class="btn primary-btn">Create Game</button>
+                <div class="divider">OR</div>
+                <div class="join-group">
+                    <input type="text" id="roomCodeInput" placeholder="4-Digit Code" maxlength="4" inputmode="numeric" autocomplete="off" aria-label="Room code">
+                    <button id="joinRoomBtn" class="btn secondary-btn">Join Game</button>
+                </div>
+            </div>
+            <p class="lobby-hint">Open this page in two Live Server tabs or windows to play local PVP on the same PC.</p>
+            <p id="lobbyStatus" class="status-text"></p>
+        </div>
+    </div>
+
+    <h1 class="game-title pop-up">Stack Attack</h1>
 
     <div class="game-ui">
 
-        <!-- CARD INFORMATION PANEL -->
         <div class="card-panel panel">
 
-            <div class="panel-title">
-                Card Panel
-            </div>
-
+            <div class="panel-title">Card Panel</div>
 
             <div class="stat-box">
-                <p class="pop-up" id="cardIcon">
-                    
-                </p>
+                <p class="pop-up hidden" id="cardIcon"></p>
             </div>
             
             <div class="stat-box">
-                    <p class="pop-up" id="cardName">
-                        Card Name
-                    </p>
+                <p class="pop-up hidden" id="cardName">Card Name</p>
             </div>
 
             <div class="tile-info" id="tileInfo">
-
                 <div class="stat-box">
-                    <p class="pop-up" id="cardHealth">
-                        Card Health
-                    </p>
+                    <p class="pop-up hidden" id="cardHealth">Card Health</p>
                 </div>
-
                 <div class="stat-box">
-                    <p class="pop-up" id="cardDamage">
-                        Card Damage
-                    </p>
+                    <p class="pop-up hidden" id="cardDamage">Card Damage</p>
                 </div>
-                
                 <div class="stat-box">
-                    <p class="pop-up" id="tileType">
-                        Tile Type
-                    </p>
+                    <p class="pop-up hidden" id="tileType">Tile Type</p>
                 </div>
-
                 <div class="stat-box">
-                    <p class="pop-up" id="tilePosition">
-                        Tile Position
-                    </p>
+                    <p class="pop-up hidden" id="tilePosition">Tile Position</p>
                 </div>
-
             </div>
-
 
         </div>
 
-
-        <!-- GAME BOARD -->
         <div class="board-container">
 
+            <div class="turn-banner" id="turnBanner">Waiting for players...</div>
+
             <div class="energy-bar">
-                <p id="playerEnergy">Player Energy: 10</p>
+                <p id="playerEnergy">Your Energy: 10</p>
+                <button id="endTurnBtn" class="btn end-turn-btn" disabled>End Turn</button>
                 <p id="enemyEnergy">Enemy Energy: 10</p>
             </div>
 
             <div class="board" id="board"></div>
-            
+
         </div>
 
-
-        <!-- SHOP PANEL -->
         <div class="shop-panel panel">
-
-            <div class="panel-title">
-                Shop
-            </div>
-
-            <div class="shop" id="shop">
-
-            </div>
-
+            <div class="panel-title">Shop</div>
+            <div class="shop" id="shop"></div>
         </div>
 
     </div>
-
 
     <script src="cards.js"></script>
     <script src="shop.js"></script>

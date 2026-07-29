@@ -35,12 +35,18 @@ cards.forEach(card => {
         selectedCard = card;
         selectedCardElement = shopCard;
 
+        cardIcon.classList.remove("hidden");
+        cardName.classList.remove("hidden");
+        cardDamage.classList.remove("hidden");
+        cardHealth.classList.remove("hidden");
+        tileType.classList.remove("hidden");
+        tilePosition.classList.remove("hidden");
         cardIcon.textContent = `${card.icon}`;
         cardName.textContent = `${card.name}`;
         cardDamage.textContent = `DMG: ${card.damage}`;
         cardHealth.textContent = `HP: ${card.health}`;
-        tileType.textContent = `Type: ${card.type}`;
-
+        tileType.textContent = `Type: ${card.type} • ${card.rarity}`;
+        tilePosition.textContent = `Move: ${card.move} • Range: ${card.range}`;
     });
 
     shop.appendChild(shopCard);
