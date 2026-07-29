@@ -1,5 +1,7 @@
 // Board setup
 const board = document.getElementById("board");
+const playerEnergyDisplay = document.getElementById("playerEnergy");
+const enemyEnergyDisplay = document.getElementById("enemyEnergy");
 
 const fireRow = Math.floor(Math.random() * 10) + 1;
 const fireColumn = Math.floor(Math.random() * 10) + 1;
@@ -10,6 +12,9 @@ const iceColumn = Math.floor(Math.random() * 10) + 1;
 
 let selectedBoardCard = null;
 let selectedBoardTile = null;
+
+let playerEnergy = 10;
+let enemyEnergy = 10;
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -30,6 +35,7 @@ function showLabel(label) {
 
 // Hides card information
 function hideCardInfo() {
+    hideLabel(cardIcon);
     hideLabel(cardName);
     hideLabel(cardDamage);
     hideLabel(cardHealth);
@@ -37,6 +43,7 @@ function hideCardInfo() {
 
 // Shows card information
 function showCardInfo(card) {
+    showLabel(cardIcon);
     showLabel(cardName);
     showLabel(cardDamage);
     showLabel(cardHealth);
@@ -68,6 +75,15 @@ function getCardFromTile(tile) {
 function createUnitPieceHTML(icon) {
     return `<div class="unit-piece">${icon}</div>`;
 }
+
+// Refreshes energy UI text
+function updateEnergyDisplay() {
+    if (playerEnergyDisplay) playerEnergyDisplay.textContent = `Player Energy: ${playerEnergy}`;
+    if (enemyEnergyDisplay) enemyEnergyDisplay.textContent = `Enemy Energy: ${enemyEnergy}`;
+}
+
+// Initial call to set UI on load
+updateEnergyDisplay();
 
 // Updates dataset stats on a tile and syncs active UI labels if selected
 function updateCardStats(tile, statsToUpdate = {}) {
@@ -121,54 +137,62 @@ function findCardsOnBoard(predicate) {
     });
 }
 
-// Shows valid adjacent movement tiles (empty tiles only)
-function showValidTiles(row, column) {
-    const top = getTile(row - 1, column);
-    const right = getTile(row, column + 1);
-    const bottom = getTile(row + 1, column);
-    const left = getTile(row, column - 1);
+// ==================== MOVEMENT & TARGET HIGHLIGHTING ====================
 
-    if (top && !top.dataset.cardId) top.classList.add("selected");
-    if (right && !right.dataset.cardId) right.classList.add("selected");
-    if (bottom && !bottom.dataset.cardId) bottom.classList.add("selected");
-    if (left && !left.dataset.cardId) left.classList.add("selected");
+// Shows valid movement tiles based on move range (1 or 2)
+function showValidTiles(row, column, move = 1) {
+    const offsets = move === 2 
+        ? [[-1, 0], [-2, 0], [1, 0], [2, 0], [0, 1], [0, 2], [0, -1], [0, -2]]
+        : [[-1, 0], [1, 0], [0, 1], [0, -1]];
+
+    offsets.forEach(([rOffset, cOffset]) => {
+        const targetTile = getTile(row + rOffset, column + cOffset);
+        if (targetTile && !targetTile.dataset.cardId) {
+            targetTile.classList.add("selected");
+        }
+    });
 }
 
-// Hides valid movement highlights
-function hideValidTiles(row, column) {
-    const top = getTile(row - 1, column);
-    const right = getTile(row, column + 1);
-    const bottom = getTile(row + 1, column);
-    const left = getTile(row, column - 1);
+// Hides movement highlights
+function hideValidTiles(row, column, move = 1) {
+    const offsets = move === 2 
+        ? [[-1, 0], [-2, 0], [1, 0], [2, 0], [0, 1], [0, 2], [0, -1], [0, -2]]
+        : [[-1, 0], [1, 0], [0, 1], [0, -1]];
 
-    if (top) top.classList.remove("selected");
-    if (right) right.classList.remove("selected");
-    if (bottom) bottom.classList.remove("selected");
-    if (left) left.classList.remove("selected");
+    offsets.forEach(([rOffset, cOffset]) => {
+        const targetTile = getTile(row + rOffset, column + cOffset);
+        if (targetTile) {
+            targetTile.classList.remove("selected");
+        }
+    });
 }
 
-function showValidTargets(row, column) {
-    const top = getTile(row - 1, column);
-    const right = getTile(row, column + 1);
-    const bottom = getTile(row + 1, column);
-    const left = getTile(row, column - 1);
+// Shows valid attack targets based on attack range (1 or 2)
+function showValidTargets(row, column, range = 1) {
+    const offsets = range === 2 
+        ? [[-1, 0], [-2, 0], [1, 0], [2, 0], [0, 1], [0, 2], [0, -1], [0, -2]]
+        : [[-1, 0], [1, 0], [0, 1], [0, -1]];
 
-    if (top && top.dataset.cardId) top.classList.add("target");
-    if (right && right.dataset.cardId) right.classList.add("target");
-    if (bottom && bottom.dataset.cardId) bottom.classList.add("target");
-    if (left && left.dataset.cardId) left.classList.add("target");
+    offsets.forEach(([rOffset, cOffset]) => {
+        const targetTile = getTile(row + rOffset, column + cOffset);
+        if (targetTile && targetTile.dataset.cardId) {
+            targetTile.classList.add("target");
+        }
+    });
 }
 
-function hideValidTargets(row, column) {
-    const top = getTile(row - 1, column);
-    const right = getTile(row, column + 1);
-    const left = getTile(row, column - 1);
-    const bottom = getTile(row + 1, column);
+// Hides attack target highlights
+function hideValidTargets(row, column, range = 1) {
+    const offsets = range === 2 
+        ? [[-1, 0], [-2, 0], [1, 0], [2, 0], [0, 1], [0, 2], [0, -1], [0, -2]]
+        : [[-1, 0], [1, 0], [0, 1], [0, -1]];
 
-    if (top) top.classList.remove("target");
-    if (right) right.classList.remove("target");
-    if (bottom) bottom.classList.remove("target");
-    if (left) left.classList.remove("target");
+    offsets.forEach(([rOffset, cOffset]) => {
+        const targetTile = getTile(row + rOffset, column + cOffset);
+        if (targetTile) {
+            targetTile.classList.remove("target");
+        }
+    });
 }
 
 // ==================== CARD MOVEMENT & PLACEMENT ====================
@@ -176,6 +200,8 @@ function hideValidTargets(row, column) {
 function moveCard(tile) {
     const oldRow = Number(selectedBoardTile.dataset.row);
     const oldColumn = Number(selectedBoardTile.dataset.column);
+    const moveRange = selectedBoardCard.move || 1;
+    const attackRange = selectedBoardCard.range || 1;
 
     // 1. Deduct 10 health directly from unit
     const newHealth = selectedBoardCard.health - 10;
@@ -183,8 +209,8 @@ function moveCard(tile) {
     // Check if unit dies from moving
     if (newHealth <= 0) {
         clearTile(selectedBoardTile);
-        hideValidTiles(oldRow, oldColumn);
-        hideValidTargets(oldRow, oldColumn);
+        hideValidTiles(oldRow, oldColumn, moveRange);
+        hideValidTargets(oldRow, oldColumn, attackRange);
         hideCardInfo();
         selectedBoardCard = null;
         selectedBoardTile = null;
@@ -203,10 +229,10 @@ function moveCard(tile) {
         damage: selectedBoardCard.damage
     });
 
-    // Clear old tile
+    // Clear old tile & clear highlights
     clearTile(selectedBoardTile);
-    hideValidTiles(oldRow, oldColumn);
-    hideValidTargets(oldRow, oldColumn);
+    hideValidTiles(oldRow, oldColumn, moveRange);
+    hideValidTargets(oldRow, oldColumn, attackRange);
 
     selectedBoardCard = null;
     selectedBoardTile = null;
@@ -214,6 +240,19 @@ function moveCard(tile) {
 
 // Places a card selected from the shop onto a board tile
 function placeCard(tile) {
+    if (!selectedCard) return;
+
+    // Check if player has enough energy
+    if (playerEnergy < selectedCard.cost) {
+        if (selectedCardElement) selectedCardElement.classList.toggle("invalid");
+        return;
+    }
+
+    // Deduct energy & update display
+    playerEnergy -= selectedCard.cost;
+    updateEnergyDisplay();
+
+    // Place unit piece & data on tile
     tile.innerHTML = createUnitPieceHTML(selectedCard.icon);
     tile.dataset.cardId = selectedCard.id;
     updateCardStats(tile, {
@@ -221,6 +260,7 @@ function placeCard(tile) {
         damage: selectedCard.damage
     });
 
+    // Remove shop element after purchase
     if (selectedCardElement) {
         selectedCardElement.remove();
     }
@@ -230,10 +270,12 @@ function placeCard(tile) {
 }
 
 // ==================== CARD COMBAT ====================
-// Handles attack mechanics between two board units
+
 function attackCard(attackerTile, defenderTile) {
     const oldRow = Number(attackerTile.dataset.row);
     const oldColumn = Number(attackerTile.dataset.column);
+    const moveRange = selectedBoardCard.move || 1;
+    const attackRange = selectedBoardCard.range || 1;
 
     // 1. Get current stats directly from dataset
     const attackerDmg = Number(attackerTile.dataset.cardDamage) || selectedBoardCard.damage;
@@ -257,8 +299,8 @@ function attackCard(attackerTile, defenderTile) {
     }
 
     // 5. Clean up selection highlights
-    hideValidTiles(oldRow, oldColumn);
-    hideValidTargets(oldRow, oldColumn);
+    hideValidTiles(oldRow, oldColumn, moveRange);
+    hideValidTargets(oldRow, oldColumn, attackRange);
 
     selectedBoardCard = null;
     selectedBoardTile = null;
@@ -328,8 +370,12 @@ function createBoard() {
 
                 // 3. DESELECT: If clicking the tile that is already selected
                 if (selectedBoardTile === tile) {
-                    hideValidTiles(row, column);
-                    hideValidTargets(row, column);
+                    const moveRange = selectedBoardCard.move || 1;
+                    const attackRange = selectedBoardCard.range || 1;
+
+                    hideValidTiles(row, column, moveRange);
+                    hideValidTargets(row, column, attackRange);
+                    
                     selectedBoardCard = null;
                     selectedBoardTile = null;
                     return;
@@ -341,22 +387,27 @@ function createBoard() {
 
                     showCardInfo(card);
 
-                    // Clear previous selection highlights
+                    // Clear previous selection highlights if another card was selected
                     if (selectedBoardTile) {
                         const oldRow = Number(selectedBoardTile.dataset.row);
                         const oldColumn = Number(selectedBoardTile.dataset.column);
-                        hideValidTiles(oldRow, oldColumn);
-                        hideValidTargets(oldRow, oldColumn);
+                        const oldMove = selectedBoardCard.move || 1;
+                        const oldRange = selectedBoardCard.range || 1;
+
+                        hideValidTiles(oldRow, oldColumn, oldMove);
+                        hideValidTargets(oldRow, oldColumn, oldRange);
                     }
 
                     // Select this card
                     selectedBoardCard = card;
                     selectedBoardTile = tile;
 
-                    // Show movement & target highlights
-                    showValidTiles(row, column);
-                    showValidTargets(row, column);
+                    // Show movement & target highlights based on unit's stats (defaulting to 1 if not specified)
+                    const unitMove = card.move || 1;
+                    const unitRange = card.range || 1;
 
+                    showValidTiles(row, column, unitMove);
+                    showValidTargets(row, column, unitRange);
                     return;
                 }
 

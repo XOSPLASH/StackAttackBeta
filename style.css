@@ -13,6 +13,7 @@
 
     --gold: #ffd700;
     --red: #ff4d4f;
+    --blue: #2ba2e2;
 
     --text-main: #ffffff;
     --text-muted: #a0aec0;
@@ -120,7 +121,6 @@ html, body {
 }
 
 .stat-box:hover {
-    background: --panel-light;
     transform: translateY(-2px);
 }
 
@@ -200,6 +200,13 @@ p {
     background: #ffffff;
 }
 
+.shop-card.invalid {
+    border-color: var(--red);
+    box-shadow: 0 0 12px rgba(255, 77, 79, 0.4);
+    background: #ffffff;
+    animation: tile-shake 0.3s ease-in-out;
+}
+
 .shop-card h3 {
     margin: 0;
     font-size: 14px;
@@ -252,14 +259,44 @@ p {
     perspective: 1000px;
     perspective-origin: 50% 30%;
     display: flex;
-    justify-content: center;
+    flex-direction: column; /* Stacks energy bar above the board */
     align-items: center;
+}
+
+/* Energy bar container positioned above the board */
+.energy-bar {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 420px; /* Matches board width layout */
+    gap: 10px;
+    z-index: 10;
+}
+
+.energy-bar p {
+    margin: 0;
+    padding: 6px 14px;
+    background: var(--panel-light);
+    color: var(--text-main);
+    border: 2px solid var(--panel-border);
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 13px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+#playerEnergy {
+    border-color: var(--blue); /* Blue accent for player */
+}
+
+#enemyEnergy {
+    border-color: var(--red); /* Red accent for enemy */
 }
 
 .board {
     display: grid;
     grid-template-columns: repeat(10, 34px);
-    gap: 10px;
+    gap: 8px;
     background: #1c2233;
     border: 4px solid var(--border-color);
     border-radius: 16px;
@@ -295,7 +332,6 @@ p {
     filter: brightness(1.2);
     transform: translateY(-5px) translateZ(4px);
     box-shadow: 0 10px 0 #202b1c, 0 12px 16px rgba(0, 0, 0, 0.5);
-    animation: tile-shake 0.7s infinite ease-in-out;
 }
 
 .tile.selected {

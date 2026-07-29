@@ -9,6 +9,7 @@ const cards = [
         health: 100,
         damage: 20,
         range: 1,
+        move: 2,
         cost: 3
     },
     {
@@ -20,7 +21,8 @@ const cards = [
         description: "A ranged attacker that strikes enemies from a distance.",
         health: 60,
         damage: 15,
-        range: 3,
+        range: 2,
+        move: 1,
         cost: 4
     },
     {
@@ -33,6 +35,7 @@ const cards = [
         health: 180,
         damage: 10,
         range: 1,
+        move: 1,
         cost: 6
     }
 ];
