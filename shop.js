@@ -26,35 +26,52 @@ cards.forEach(card => {
     `;
 
     shopCard.addEventListener("click", function() {
+        const isSelected = shopCard.classList.contains("selected");
 
+        // Unselect all other shop cards
         document.querySelectorAll(".shop-card").forEach(c => {
             c.classList.remove("selected");
         });
 
-        shopCard.classList.add("selected");
+        // Toggle 'selected' on the clicked card
+        const isNowSelected = shopCard.classList.toggle("selected", !isSelected);
 
-        selectedCard = card;
-        selectedCardElement = shopCard;
+        if (isNowSelected) {
+            // Select the card & display stats in sidebar
+            selectedCard = card;
+            selectedCardElement = shopCard;
 
-        cardIcon.classList.remove("team-blue", "team-red");
+            cardIcon.classList.remove("team-blue", "team-red", "hidden");
+            cardAbility.classList.remove("hidden");
+            cardName.classList.remove("hidden");
+            cardAP.classList.remove("hidden");
+            cardDamage.classList.remove("hidden");
+            cardHealth.classList.remove("hidden");
+            cardRange.classList.remove("hidden");
+            cardMove.classList.remove("hidden");
 
-        cardIcon.classList.remove("hidden");
-        cardAbility.classList.remove("hidden");
-        cardName.classList.remove("hidden");
-        cardAP.classList.remove("hidden");
-        cardDamage.classList.remove("hidden");
-        cardHealth.classList.remove("hidden");
-        cardRange.classList.remove("hidden");
-        cardMove.classList.remove("hidden");
-        cardIcon.textContent = `${card.icon}`;
-        cardAbility.classList.remove("hidden");
-        cardAbility.textContent = `${card.ability}`;
-        cardName.textContent = `${card.name}`;
-        cardAP.textContent = `AP: ${card.ap}`;
-        cardDamage.textContent = `DMG: ${card.damage}`;
-        cardHealth.textContent = `HP: ${card.health}`;
-        cardRange.textContent = `Range: ${card.range}`;
-        cardMove.textContent = `Move: ${card.move}`;
+            cardIcon.textContent = `${card.icon}`;
+            cardAbility.textContent = card.ability || "None";
+            cardName.textContent = `${card.name}`;
+            cardAP.textContent = `AP: ${card.ap ?? 2}`;
+            cardDamage.textContent = `DMG: ${card.damage}`;
+            cardHealth.textContent = `HP: ${card.health}`;
+            cardRange.textContent = `Range: ${card.range}`;
+            cardMove.textContent = `Move: ${card.move}`;
+        } else {
+            // Clear selection & hide sidebar elements
+            selectedCard = null;
+            selectedCardElement = null;
+
+            cardIcon.classList.add("hidden");
+            cardAbility.classList.add("hidden");
+            cardName.classList.add("hidden");
+            cardAP.classList.add("hidden");
+            cardDamage.classList.add("hidden");
+            cardHealth.classList.add("hidden");
+            cardRange.classList.add("hidden");
+            cardMove.classList.add("hidden");
+        }
     });
 
     shop.appendChild(shopCard);

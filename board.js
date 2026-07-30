@@ -11,6 +11,9 @@ let isRoomHost = false;
 let opponentSessionId = null;
 let joinTimeoutId = null;
 
+// 0 = Deselected, 1 = Move Stage (.in-move), 2 = Attack Stage (.in-range & .target)
+let selectionState = 0; 
+
 // DOM Elements
 const board = document.getElementById("board");
 const playerEnergyDisplay = document.getElementById("playerEnergy");
@@ -45,752 +48,603 @@ function setLobbyControlsDisabled(disabled) {
     roomCodeInput.disabled = disabled;
 }
 
-function sanitizeRoomCode(code) {
-    return code.replace(/\D/g, "").slice(0, 4);
-}
-
-function buildSeededRandom(seedText) {
-    let hash = 2166136261;
-
-    for (const char of seedText) {
-        hash ^= char.charCodeAt(0);
-        hash = Math.imul(hash, 16777619);
+function buildTerrainLayout(seed = "solo") {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+        hash = (hash << 5) - hash + seed.charCodeAt(i);
+        hash |= 0;
     }
 
-    return function seededRandom() {
-        hash += 0x6D2B79F5;
-        let value = Math.imul(hash ^ (hash >>> 15), 1 | hash);
-        value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
-        return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    const getPseudoRandom = (offset) => {
+        const x = Math.sin(hash + offset) * 10000;
+        return x - Math.floor(x);
+    };
+
+    const fireIndex = Math.floor(getPseudoRandom(1) * 100);
+    let waterIndex = Math.floor(getPseudoRandom(2) * 100);
+    while (waterIndex === fireIndex) {
+        waterIndex = Math.floor(getPseudoRandom(3) * 100);
+    }
+    let iceIndex = Math.floor(getPseudoRandom(4) * 100);
+    while (iceIndex === fireIndex || iceIndex === waterIndex) {
+        iceIndex = Math.floor(getPseudoRandom(5) * 100);
+    }
+
+    return {
+        fire: { x: (fireIndex % 10) + 1, y: Math.floor(fireIndex / 10) + 1 },
+        water: { x: (waterIndex % 10) + 1, y: Math.floor(waterIndex / 10) + 1 },
+        ice: { x: (iceIndex % 10) + 1, y: Math.floor(iceIndex / 10) + 1 }
     };
 }
 
-function buildTerrainLayout(seedText) {
-    const random = buildSeededRandom(seedText);
-    const occupiedTiles = new Set();
-    const terrainTypes = ["fire", "water", "ice"];
-
-    return terrainTypes.reduce((layout, type) => {
-        let x;
-        let y;
-        let tileKey;
-
-        do {
-            x = Math.floor(random() * 10) + 1;
-            y = Math.floor(random() * 10) + 1;
-            tileKey = `${x},${y}`;
-        } while (occupiedTiles.has(tileKey));
-
-        occupiedTiles.add(tileKey);
-        layout[type] = { x, y };
-        return layout;
-    }, {});
-}
-
-function syncTerrain(seedText) {
-    terrainLayout = buildTerrainLayout(seedText || "solo");
-    createBoard();
-}
-
-function clearSelectionState() {
-    if (selectedBoardTile && selectedBoardCard) {
-        const x = Number(selectedBoardTile.dataset.x);
-        const y = Number(selectedBoardTile.dataset.y);
-        hideValidMoves(x, y, selectedBoardCard.move || 1);
-        hideValidTargets(x, y, selectedBoardCard.range || 1);
-    }
-
-    selectedBoardCard = null;
-    selectedBoardTile = null;
-}
-
-function resetEnergy() {
-    playerEnergy = 10;
-    enemyEnergy = 10;
-}
-
-function getRoomStorageKey(roomCode) {
-    return `${ROOM_STORAGE_PREFIX}${roomCode}`;
-}
-
-function readRoomRecord(roomCode) {
-    const rawValue = localStorage.getItem(getRoomStorageKey(roomCode));
-    if (!rawValue) return null;
-
-    try {
-        const record = JSON.parse(rawValue);
-        if (!record.createdAt || Date.now() - record.createdAt > ROOM_TTL_MS) {
-            localStorage.removeItem(getRoomStorageKey(roomCode));
-            return null;
-        }
-        return record;
-    } catch {
-        localStorage.removeItem(getRoomStorageKey(roomCode));
-        return null;
-    }
-}
-
-function writeRoomRecord(roomCode, record) {
-    localStorage.setItem(getRoomStorageKey(roomCode), JSON.stringify(record));
-}
-
-function removeRoomRecord(roomCode) {
-    localStorage.removeItem(getRoomStorageKey(roomCode));
-}
-
-function generateRoomCode() {
-    let roomCode;
-
-    do {
-        roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-    } while (readRoomRecord(roomCode));
-
-    return roomCode;
-}
-
-function closeRoomChannel() {
-    if (roomChannel) {
-        roomChannel.close();
-        roomChannel = null;
-    }
-}
-
-function openRoomChannel(roomCode) {
-    closeRoomChannel();
-    roomChannel = new BroadcastChannel(`stack-attack-${roomCode}`);
-    roomChannel.addEventListener("message", handleRoomMessage);
-}
-
-function startJoinTimeout(roomCode) {
-    clearJoinTimeout();
-    joinTimeoutId = window.setTimeout(() => {
-        if (currentRoom === roomCode && currentTurn === null && myTeam === "red") {
-            const record = readRoomRecord(roomCode);
-            if (record && record.guestSessionId === sessionId) {
-                delete record.guestSessionId;
-                writeRoomRecord(roomCode, record);
-            }
-            leaveRoom(false);
-            setLobbyStatus("That room is not responding. Ask the host to keep their tab open and create a fresh code.", "error");
-        }
-    }, 3000);
-}
-
-function clearJoinTimeout() {
-    if (joinTimeoutId) {
-        clearTimeout(joinTimeoutId);
-        joinTimeoutId = null;
-    }
-}
-
-function handleOpponentLeft(message) {
-    leaveRoom(false);
-    setLobbyStatus(message, "error");
-}
-
-function leaveRoom(notifyOpponent = true) {
-    clearJoinTimeout();
-
-    if (roomChannel && notifyOpponent && currentRoom) {
-        roomChannel.postMessage({
-            type: "opponentLeft",
-            roomCode: currentRoom,
-            senderId: sessionId,
-            message: "Your opponent left. Create a new room to play again."
-        });
-    }
-
-    if (currentRoom) {
-        const record = readRoomRecord(currentRoom);
-        if (record) {
-            if (isRoomHost || record.hostSessionId === sessionId) {
-                removeRoomRecord(currentRoom);
-            } else if (record.guestSessionId === sessionId) {
-                delete record.guestSessionId;
-                writeRoomRecord(currentRoom, record);
-            }
-        }
-    }
-
-    closeRoomChannel();
-    currentRoom = null;
-    currentTurn = null;
-    myTeam = null;
-    isRoomHost = false;
-    opponentSessionId = null;
-    roomCodeInput.value = "";
-    clearSelectionState();
-    resetEnergy();
-    syncTerrain("solo");
-    setLobbyControlsDisabled(false);
-    lobbyModal.classList.remove("hidden");
-    updateTurnUI();
-}
-
-function startGame(turn) {
-    clearJoinTimeout();
-    currentTurn = turn;
-    lobbyModal.classList.add("hidden");
-    updateTurnUI();
-}
-
-function handleRoomMessage(event) {
-    const message = event.data;
-    if (!message || message.senderId === sessionId || message.roomCode !== currentRoom) return;
-
-    if (message.type === "joinRequest" && isRoomHost) {
-        const record = readRoomRecord(currentRoom);
-        if (!record || record.guestSessionId !== message.senderId) return;
-
-        opponentSessionId = message.senderId;
-        roomChannel.postMessage({
-            type: "opponentJoined",
-            roomCode: currentRoom,
-            senderId: sessionId
-        });
-        roomChannel.postMessage({
-            type: "gameStart",
-            roomCode: currentRoom,
-            currentTurn: "blue",
-            senderId: sessionId
-        });
-        startGame("blue");
-        return;
-    }
-
-    if (message.type === "opponentJoined") {
-        opponentSessionId = message.senderId;
-        setLobbyStatus("Player 2 joined. Starting match...", "success");
-        return;
-    }
-
-    if (message.type === "gameStart") {
-        opponentSessionId = message.senderId;
-        startGame(message.currentTurn);
-        return;
-    }
-
-    if (message.type === "turnChanged") {
-        currentTurn = message.currentTurn;
-        resetTeamAP(currentTurn); // Sync AP reset on receiving turn change
-        updateTurnUI();
-        return;
-    }
-
-    if (message.type === "gameActionDone") {
-        handleRemoteAction(message.actionType, message.payload);
-        return;
-    }
-
-    if (message.type === "opponentLeft") {
-        handleOpponentLeft(message.message);
-    }
-}
-
-function postRoomMessage(message) {
-    if (!roomChannel || !currentRoom) return;
-    roomChannel.postMessage({
-        ...message,
-        roomCode: currentRoom,
-        senderId: sessionId
-    });
-}
-
-roomCodeInput.addEventListener("input", () => {
-    roomCodeInput.value = sanitizeRoomCode(roomCodeInput.value);
-});
-
-roomCodeInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !joinRoomBtn.disabled) {
-        joinRoomBtn.click();
-    }
-});
-
-if (supportsLocalMultiplayer) {
-    setLobbyControlsDisabled(false);
-    setLobbyStatus("Create or Join a room.", "success");
-
-    createRoomBtn.addEventListener("click", () => {
-        const roomCode = generateRoomCode();
-        currentRoom = roomCode;
-        myTeam = "blue";
-        currentTurn = null;
-        isRoomHost = true;
-        opponentSessionId = null;
-        resetEnergy();
-        roomCodeInput.value = roomCode;
-        syncTerrain(roomCode);
-        openRoomChannel(roomCode);
-        writeRoomRecord(roomCode, {
-            hostSessionId: sessionId,
-            createdAt: Date.now()
-        });
-        setLobbyControlsDisabled(true);
-        setLobbyStatus(`Room ${roomCode} created. Open another Live Server tab and join it.`, "success");
-        updateTurnUI();
-    });
-
-    joinRoomBtn.addEventListener("click", () => {
-        const roomCode = sanitizeRoomCode(roomCodeInput.value.trim());
-
-        if (roomCode.length !== 4) {
-            setLobbyStatus("Please enter a 4-digit room code.", "error");
-            return;
-        }
-
-        const record = readRoomRecord(roomCode);
-        if (!record) {
-            setLobbyStatus("Room not found. Make sure the host created it in another Live Server tab first.", "error");
-            return;
-        }
-
-        if (record.hostSessionId === sessionId) {
-            setLobbyStatus("Open a second Live Server tab or window to join your own room.", "error");
-            return;
-        }
-
-        if (record.guestSessionId && record.guestSessionId !== sessionId) {
-            setLobbyStatus("That room is already full.", "error");
-            return;
-        }
-
-        record.guestSessionId = sessionId;
-        writeRoomRecord(roomCode, record);
-
-        currentRoom = roomCode;
-        myTeam = "red";
-        currentTurn = null;
-        isRoomHost = false;
-        opponentSessionId = record.hostSessionId;
-        resetEnergy();
-        roomCodeInput.value = roomCode;
-        syncTerrain(roomCode);
-        openRoomChannel(roomCode);
-        setLobbyControlsDisabled(true);
-        setLobbyStatus(`Joined room ${roomCode}. Waiting for the host to start...`, "success");
-        postRoomMessage({ type: "joinRequest" });
-        startJoinTimeout(roomCode);
-        updateTurnUI();
-    });
-} else {
-    setLobbyControlsDisabled(true);
-    setLobbyStatus("This browser does not support local multiplayer. Try a recent version of Chrome or Edge.", "error");
-}
-
-window.addEventListener("beforeunload", () => {
-    if (currentRoom) {
-        leaveRoom(true);
-    }
-});
-
-endTurnBtn.addEventListener("click", () => {
-    if (myTeam === currentTurn && currentRoom) {
-        currentTurn = currentTurn === "blue" ? "red" : "blue";
-        resetTeamAP(currentTurn); // Reset AP for the player starting their turn
-        updateTurnUI();
-        postRoomMessage({
-            type: "turnChanged",
-            currentTurn
-        });
-    }
-});
-
-function updateTurnUI() {
-    const isMyTurn = myTeam && currentTurn && myTeam === currentTurn;
-    endTurnBtn.disabled = !isMyTurn;
-
-    if (!isMyTurn) {
-        clearSelectionState();
-    }
-
-    if (!myTeam || !currentTurn) {
-        turnBanner.textContent = "Waiting for players...";
-        turnBanner.style.color = "#ffd700";
-    } else if (isMyTurn) {
-        turnBanner.textContent = `YOUR TURN (${myTeam.toUpperCase()})`;
-        turnBanner.style.color = "#4bbdffff";
-    } else {
-        turnBanner.textContent = `ENEMY'S TURN (${currentTurn.toUpperCase()})`;
-        turnBanner.style.color = "#ff4d4f";
-    }
-
-    if (playerEnergyDisplay) playerEnergyDisplay.textContent = `Your Energy: ${playerEnergy}`;
-    if (enemyEnergyDisplay) enemyEnergyDisplay.textContent = `Enemy Energy: ${enemyEnergy}`;
-}
+// ==================== HELPER FUNCTIONS ====================
 
 function getTile(x, y) {
     return document.querySelector(`[data-position="${x},${y}"]`);
 }
 
-function hideLabel(label) { if (label) label.classList.add("hidden"); }
-function showLabel(label) { if (label) label.classList.remove("hidden"); }
+function getCardFromTile(tile) {
+    if (!tile || !tile.dataset.cardId) return null;
+    return {
+        id: Number(tile.dataset.cardId),
+        name: tile.dataset.cardName,
+        icon: tile.dataset.cardIcon,
+        health: Number(tile.dataset.cardHealth),
+        damage: Number(tile.dataset.cardDamage),
+        range: Number(tile.dataset.cardRange || 1),
+        move: Number(tile.dataset.cardMove || 1),
+        ap: Number(tile.dataset.cardAp ?? 2),
+        ability: tile.dataset.cardAbility || "None"
+    };
+}
 
-function hideCardInfo() {
-    hideLabel(cardIcon);
-    hideLabel(cardName);
-    hideLabel(cardDamage);
-    hideLabel(cardHealth);
-    hideLabel(cardRange);
-    hideLabel(cardMove);
-    hideLabel(cardAP);
-    hideLabel(cardAbility);
+function updateCardStats(tile, stats = {}) {
+    if (!tile) return;
+    if (stats.health !== undefined) tile.dataset.cardHealth = stats.health;
+    if (stats.damage !== undefined) tile.dataset.cardDamage = stats.damage;
+    if (stats.range !== undefined) tile.dataset.cardRange = stats.range;
+    if (stats.move !== undefined) tile.dataset.cardMove = stats.move;
+    if (stats.ap !== undefined) tile.dataset.cardAp = stats.ap;
+    if (stats.ability !== undefined) tile.dataset.cardAbility = stats.ability;
+}
 
-    // Clear any active team border classes on the card icon
-    if (cardIcon) {
-        cardIcon.classList.remove("team-blue", "team-red");
+function showTileInfo(tile) {
+    if (!tile) return;
+
+    if (tileType) {
+        tileType.classList.remove("hidden");
+        const typeStr = tile.dataset.type || "grass";
+        tileType.textContent = `Tile Type: ${typeStr.charAt(0).toUpperCase() + typeStr.slice(1)}`;
+    }
+
+    if (tilePosition) {
+        tilePosition.classList.remove("hidden");
+        tilePosition.textContent = `Position: (${tile.dataset.x}, ${tile.dataset.y})`;
     }
 }
 
-function showCardInfo(card, team = null) {
-    showLabel(cardIcon);
-    showLabel(cardAP);
-    showLabel(cardName);
-    showLabel(cardDamage);
-    showLabel(cardHealth);
-    showLabel(cardRange);
-    showLabel(cardMove);
-    showLabel(cardAP);
-    showLabel(cardAbility);
+function hideTileInfo() {
+    if (tileType) tileType.classList.add("hidden");
+    if (tilePosition) tilePosition.classList.add("hidden");
+}
+
+function showCardInfo(card, cardTeam = null) {
+    cardIcon.classList.remove("hidden", "team-blue", "team-red");
+    cardName.classList.remove("hidden");
+    cardDamage.classList.remove("hidden");
+    cardHealth.classList.remove("hidden");
+    cardRange.classList.remove("hidden");
+    cardMove.classList.remove("hidden");
+    if (cardAP) cardAP.classList.remove("hidden");
+    if (cardAbility) cardAbility.classList.remove("hidden");
+
+    if (cardTeam) {
+        cardIcon.classList.add(`team-${cardTeam}`);
+    }
 
     cardIcon.textContent = card.icon;
     cardName.textContent = card.name;
     cardDamage.textContent = `DMG: ${card.damage}`;
     cardHealth.textContent = `HP: ${card.health}`;
-    cardRange.textContent = `Range: ${card.range}`;
-    cardMove.textContent = `Move: ${card.move}`;
-    cardAP.textContent = `AP: ${card.ap}`;
-    cardAbility.textContent = card.ability;
+    cardRange.textContent = `Range: ${card.range || 1}`;
+    cardMove.textContent = `Move: ${card.move || 1}`;
+    if (cardAP) cardAP.textContent = `AP: ${card.ap ?? 2}`;
+    if (cardAbility) cardAbility.textContent = card.ability || "None";
+}
 
-    // Apply the team border if a team is provided
-    if (cardIcon) {
-        cardIcon.classList.remove("team-blue", "team-red");
-        if (team === "blue") cardIcon.classList.add("team-blue");
-        if (team === "red") cardIcon.classList.add("team-red");
+function hideCardInfo() {
+    cardIcon.classList.add("hidden");
+    cardName.classList.add("hidden");
+    cardDamage.classList.add("hidden");
+    cardHealth.classList.add("hidden");
+    cardRange.classList.add("hidden");
+    cardMove.classList.add("hidden");
+    if (cardAP) cardAP.classList.add("hidden");
+    if (cardAbility) cardAbility.classList.add("hidden");
+}
+
+function clearSelectionState() {
+    document.querySelectorAll(".tile").forEach(t => {
+        t.classList.remove("in-move", "in-range", "target", "targets", "selected");
+    });
+    selectedBoardCard = null;
+    selectedBoardTile = null;
+    selectionState = 0;
+    hideTileInfo();
+}
+
+function getOrthogonalOffsets(distance) {
+    const offsets = [];
+    for (let d = 1; d <= distance; d++) {
+        offsets.push([d, 0], [-d, 0], [0, d], [0, -d]);
     }
+    return offsets;
 }
 
-function showTileInfo(tile, x, y) {
-    tilePosition.classList.remove("hidden");
-    tileType.classList.remove("hidden");
-    tilePosition.textContent = `Position: (${x}, ${y})`;
-    tileType.textContent = `Tile: ${tile.dataset.type}`;
-}
-
-function getCardFromTile(tile) {
-    const baseCard = cards.find(card => card.id == tile.dataset.cardId);
-    if (!baseCard) return null;
-
-    return {
-        ...baseCard,
-        ap: Number(tile.dataset.cardAp ?? baseCard.ap),
-        ability: tile.dataset.cardAbility ?? baseCard.ability,
-        health: Number(tile.dataset.cardHealth ?? baseCard.health),
-        damage: Number(tile.dataset.cardDamage ?? baseCard.damage),
-        range: Number(tile.dataset.cardRange ?? baseCard.range),
-        move: Number(tile.dataset.cardMove ?? baseCard.move)
-    };
-}
-
-function createUnitPieceHTML(icon) {
-    return `<div class="unit-piece">${icon}</div>`;
-}
-
-function updateCardStats(tile, statsToUpdate = {}) {
-    if (!tile || !tile.dataset.cardId) return;
-
-    if (statsToUpdate.range !== undefined) tile.dataset.cardRange = statsToUpdate.range;
-    if (statsToUpdate.move !== undefined) tile.dataset.cardMove = statsToUpdate.move;
-    if (statsToUpdate.ability !== undefined) tile.dataset.cardAbility = statsToUpdate.ability;
-    if (statsToUpdate.health !== undefined) tile.dataset.cardHealth = statsToUpdate.health;
-    if (statsToUpdate.range !== undefined) tile.dataset.cardRange = statsToUpdate.range;
-    if (statsToUpdate.move !== undefined) tile.dataset.cardMove = statsToUpdate.move;
-    if (statsToUpdate.damage !== undefined) tile.dataset.cardDamage = statsToUpdate.damage;
-    if (statsToUpdate.ap !== undefined) tile.dataset.cardAp = statsToUpdate.ap;
-
-    if (selectedBoardTile === tile && selectedBoardCard) {
-        if (statsToUpdate.health !== undefined) {
-            selectedBoardCard.health = statsToUpdate.health;
-            if (typeof cardHealth !== "undefined") cardHealth.textContent = `HP: ${statsToUpdate.health}`;
+function showValidMoves(x, y, moveRange = 1) {
+    const offsets = getOrthogonalOffsets(moveRange);
+    offsets.forEach(([xOffset, yOffset]) => {
+        const targetTile = getTile(x + xOffset, y + yOffset);
+        if (targetTile && !targetTile.dataset.cardId) {
+            targetTile.classList.add("in-move");
         }
-        if (statsToUpdate.damage !== undefined) {
-            selectedBoardCard.damage = statsToUpdate.damage;
-            if (typeof cardDamage !== "undefined") cardDamage.textContent = `DMG: ${statsToUpdate.damage}`;
-        }
-    }
+    });
 }
 
-// Resets AP for all units on the board matching a specific team (or all units)
-function resetTeamAP(team) {
-    const tiles = document.querySelectorAll(".tile[data-card-id]");
-    tiles.forEach(tile => {
-        if (!team || tile.dataset.team === team) {
-            const baseCard = cards.find(c => c.id == tile.dataset.cardId);
-            if (baseCard) {
-                updateCardStats(tile, { ap: baseCard.ap });
+function hideValidTiles(x, y, moveRange = 1) {
+    const offsets = getOrthogonalOffsets(moveRange);
+    offsets.forEach(([xOffset, yOffset]) => {
+        const targetTile = getTile(x + xOffset, y + yOffset);
+        if (targetTile) {
+            targetTile.classList.remove("in-move");
+        }
+    });
+}
+
+function showValidTargets(x, y, attackRange = 1) {
+    const offsets = getOrthogonalOffsets(attackRange);
+    offsets.forEach(([xOffset, yOffset]) => {
+        const targetTile = getTile(x + xOffset, y + yOffset);
+        if (targetTile) {
+            targetTile.classList.add("in-range");
+            if (targetTile.dataset.cardId && targetTile.dataset.team !== myTeam) {
+                targetTile.classList.add("target", "targets");
             }
         }
     });
 }
 
-function clearTile(tile) {
-    if (!tile) return;
-    tile.innerHTML = "";
-    delete tile.dataset.cardId;
-    delete tile.dataset.cardHealth;
-    delete tile.dataset.cardDamage;
-    delete tile.dataset.cardRange;
-    delete tile.dataset.cardMove;
-    delete tile.dataset.team;
-    delete tile.dataset.cardAP;
-    delete tile.dataset.cardAbility;
-}
-
-function showValidMoves(x, y, move = 1) {
-    const offsets = getOrthogonalOffsets(move); // or getDiamondOffsets(move)
-
+function hideValidTargets(x, y, attackRange = 1) {
+    const offsets = getOrthogonalOffsets(attackRange);
     offsets.forEach(([xOffset, yOffset]) => {
         const targetTile = getTile(x + xOffset, y + yOffset);
-        if (targetTile && !targetTile.dataset.cardId) {
-            targetTile.classList.add("selected");
+        if (targetTile) {
+            targetTile.classList.remove("in-range", "target", "targets");
         }
     });
 }
 
-function hideValidMoves(x, y, move = 1) {
-    const offsets = getOrthogonalOffsets(move); // or getDiamondOffsets(move)
-
-    offsets.forEach(([xOffset, yOffset]) => {
-        const targetTile = getTile(x + xOffset, y + yOffset);
-        if (targetTile) targetTile.classList.remove("selected");
-    });
-}
-
-function getOrthogonalOffsets(maxDistance) {
-    const offsets = [];
-    for (let step = 1; step <= maxDistance; step++) {
-        offsets.push([-step, 0], [step, 0], [0, step], [0, -step]);
-    }
-    return offsets;
-}
-
-function showValidTargets(x, y, range = 1) {
-    const offsets = getOrthogonalOffsets(range);
-
-    offsets.forEach(([xOffset, yOffset]) => {
-        const targetTile = getTile(x + xOffset, y + yOffset);
-        if (targetTile && targetTile.dataset.cardId && targetTile.dataset.team !== myTeam) {
-            targetTile.classList.add("target");
-        }
-    });
-}
-
-function hideValidTargets(x, y, range = 1) {
-    const offsets = getOrthogonalOffsets(range);
-
-    offsets.forEach(([xOffset, yOffset]) => {
-        const targetTile = getTile(x + xOffset, y + yOffset);
-        if (targetTile) targetTile.classList.remove("target");
-    });
-}
-
-function placeCard(tile, card, team) {
-    tile.innerHTML = createUnitPieceHTML(card.icon);
-    tile.dataset.cardId = card.id;
-    tile.dataset.cardAbility = card.ability;
-    tile.dataset.cardRange = card.range;
-    tile.dataset.cardMove = card.move;
-    tile.dataset.cardAP = card.ap;
+function placeCard(tile, cardData, team) {
+    tile.dataset.cardId = cardData.id;
+    tile.dataset.cardName = cardData.name;
+    tile.dataset.cardIcon = cardData.icon;
+    tile.dataset.cardHealth = cardData.health;
+    tile.dataset.cardDamage = cardData.damage;
+    tile.dataset.cardRange = cardData.range || 1;
+    tile.dataset.cardMove = cardData.move || 1;
+    tile.dataset.cardAp = cardData.ap ?? 2;
+    tile.dataset.cardAbility = cardData.ability || "None";
     tile.dataset.team = team;
 
-    updateCardStats(tile, {
-        health: card.health,
-        damage: card.damage,
-        range: card.range,
-        move: card.move,
-        ap: card.ap,
-    });
+    tile.innerHTML = `
+        <div class="unit-piece team-${team} pop-up">
+            ${cardData.icon}
+        </div>
+    `;
 }
 
 function moveCard(fromTile, toTile) {
-    const card = getCardFromTile(fromTile);
+    const cardData = getCardFromTile(fromTile);
     const team = fromTile.dataset.team;
 
-    clearTile(fromTile);
-    placeCard(toTile, card, team);
+    const currentAP = Number(fromTile.dataset.cardAp ?? 2);
+    const newAP = Math.max(0, currentAP - 1);
+    cardData.ap = newAP;
+
+    delete fromTile.dataset.cardId;
+    delete fromTile.dataset.cardName;
+    delete fromTile.dataset.cardIcon;
+    delete fromTile.dataset.cardHealth;
+    delete fromTile.dataset.cardDamage;
+    delete fromTile.dataset.cardRange;
+    delete fromTile.dataset.cardMove;
+    delete fromTile.dataset.cardAp;
+    delete fromTile.dataset.cardAbility;
+    delete fromTile.dataset.team;
+    fromTile.innerHTML = "";
+
+    placeCard(toTile, cardData, team);
 }
 
 function attackCard(attackerTile, defenderTile) {
-    const attackerDmg = Number(attackerTile.dataset.cardDamage);
-    const currentDefenderHp = Number(defenderTile.dataset.cardHealth);
-    const newDefenderHp = currentDefenderHp - attackerDmg;
+    const attacker = getCardFromTile(attackerTile);
+    const defender = getCardFromTile(defenderTile);
 
-    if (newDefenderHp <= 0) {
-        clearTile(defenderTile);
+    if (!attacker || !defender) return;
+
+    const currentAP = Number(attackerTile.dataset.cardAp ?? 2);
+    const newAP = Math.max(0, currentAP - 1);
+    updateCardStats(attackerTile, { ap: newAP });
+
+    const newHealth = defender.health - attacker.damage;
+
+    if (newHealth <= 0) {
+        delete defenderTile.dataset.cardId;
+        delete defenderTile.dataset.cardName;
+        delete defenderTile.dataset.cardIcon;
+        delete defenderTile.dataset.cardHealth;
+        delete defenderTile.dataset.cardDamage;
+        delete defenderTile.dataset.cardRange;
+        delete defenderTile.dataset.cardMove;
+        delete defenderTile.dataset.cardAp;
+        delete defenderTile.dataset.cardAbility;
+        delete defenderTile.dataset.team;
+        defenderTile.innerHTML = "";
     } else {
-        updateCardStats(defenderTile, { health: newDefenderHp });
+        updateCardStats(defenderTile, { health: newHealth });
     }
 }
 
-function handleRemoteAction(actionType, payload) {
-    if (actionType === "place") {
-        const targetTile = getTile(payload.x, payload.y);
-        const card = cards.find(c => c.id === payload.cardId);
-        if (!targetTile || !card) return;
-        placeCard(targetTile, card, payload.team);
-        if (payload.team !== myTeam) {
-            enemyEnergy = Math.max(0, enemyEnergy - card.cost);
-            updateTurnUI();
-        }
-    } else if (actionType === "move") {
-        const fromTile = getTile(payload.fromX, payload.fromY);
-        const toTile = getTile(payload.toX, payload.toY);
-        if (!fromTile || !toTile) return;
-        moveCard(fromTile, toTile);
+// ==================== MULTIPLAYER LOGIC ====================
 
-        // Deduct AP on the moved unit for the remote view
-        const movedCard = getCardFromTile(toTile);
-        if (movedCard) {
-            updateCardStats(toTile, { ap: Math.max(0, movedCard.ap - 1) });
-        }
-    } else if (actionType === "attack") {
-        const attackerTile = getTile(payload.attX, payload.attY);
-        const defenderTile = getTile(payload.defX, payload.defY);
-        if (!attackerTile || !defenderTile) return;
+function updateTurnUI() {
+    playerEnergyDisplay.textContent = `Your Energy: ${playerEnergy}`;
+    enemyEnergyDisplay.textContent = `Enemy Energy: ${enemyEnergy}`;
 
-        // Perform attack
-        attackCard(attackerTile, defenderTile);
+    if (!myTeam) {
+        turnBanner.textContent = "Waiting for game to start...";
+        endTurnBtn.disabled = true;
+        return;
+    }
 
-        // Deduct AP on the attacking unit
-        const attackerCard = getCardFromTile(attackerTile);
-        if (attackerCard) {
-            updateCardStats(attackerTile, { ap: Math.max(0, attackerCard.ap - 1) });
-        }
+    if (currentTurn === myTeam) {
+        turnBanner.textContent = "YOUR TURN";
+        turnBanner.style.background = myTeam === "blue" ? "var(--blue)" : "var(--red)";
+        endTurnBtn.disabled = false;
+    } else {
+        turnBanner.textContent = "ENEMY TURN";
+        turnBanner.style.background = "#4a5568";
+        endTurnBtn.disabled = true;
     }
 }
 
-function emitAction(actionType, payload) {
-    if (!currentRoom) return;
-    postRoomMessage({
-        type: "gameActionDone",
-        actionType,
-        payload
+function resetUnitAP(team) {
+    document.querySelectorAll(`.tile[data-team="${team}"]`).forEach(tile => {
+        const card = getCardFromTile(tile);
+        if (card) {
+            updateCardStats(tile, { ap: 2 });
+        }
     });
 }
+
+function endTurn() {
+    if (currentTurn !== myTeam) return;
+
+    currentTurn = myTeam === "blue" ? "red" : "blue";
+    playerEnergy = Math.min(10, playerEnergy + 2);
+
+    resetUnitAP(myTeam);
+
+    updateTurnUI();
+    clearSelectionState();
+    hideCardInfo();
+
+    emitAction("endTurn", { nextTurn: currentTurn });
+}
+
+function emitAction(type, payload = {}) {
+    if (!roomChannel) return;
+
+    const actionData = {
+        type,
+        senderSessionId: sessionId,
+        team: myTeam,
+        payload
+    };
+
+    roomChannel.postMessage(actionData);
+    saveRoomState(currentRoom, { lastAction: actionData, turn: currentTurn });
+}
+
+function handleRemoteAction(data) {
+    if (!data || data.senderSessionId === sessionId) return;
+
+    if (data.type === "place") {
+        const targetTile = getTile(data.payload.x, data.payload.y);
+        const cardObj = cards.find(c => c.id === data.payload.cardId);
+        if (targetTile && cardObj) {
+            placeCard(targetTile, cardObj, data.team);
+        }
+    } else if (data.type === "move") {
+        const fromTile = getTile(data.payload.fromX, data.payload.fromY);
+        const toTile = getTile(data.payload.toX, data.payload.toY);
+        if (fromTile && toTile) {
+            moveCard(fromTile, toTile);
+        }
+    } else if (data.type === "attack") {
+        const attackerTile = getTile(data.payload.attackerX, data.payload.attackerY);
+        const defenderTile = getTile(data.payload.defenderX, data.payload.defenderY);
+        if (attackerTile && defenderTile) {
+            attackCard(attackerTile, defenderTile);
+        }
+    } else if (data.type === "endTurn") {
+        currentTurn = data.payload.nextTurn;
+        enemyEnergy = Math.min(10, enemyEnergy + 2);
+        resetUnitAP(data.team);
+        updateTurnUI();
+        clearSelectionState();
+        hideCardInfo();
+    }
+}
+
+function getRoomStorageKey(code) {
+    return `${ROOM_STORAGE_PREFIX}${code}`;
+}
+
+function saveRoomState(code, state) {
+    const key = getRoomStorageKey(code);
+    const existing = getRoomState(code) || {};
+    const updated = {
+        ...existing,
+        ...state,
+        updatedAt: Date.now()
+    };
+    localStorage.setItem(key, JSON.stringify(updated));
+}
+
+function getRoomState(code) {
+    const key = getRoomStorageKey(code);
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+        const data = JSON.parse(raw);
+        if (Date.now() - data.updatedAt > ROOM_TTL_MS) {
+            localStorage.removeItem(key);
+            return null;
+        }
+        return data;
+    } catch (e) {
+        return null;
+    }
+}
+
+function initRoomChannel(code) {
+    if (roomChannel) roomChannel.close();
+
+    currentRoom = code;
+    roomChannel = new BroadcastChannel(`stack-attack-${code}`);
+
+    roomChannel.onmessage = (event) => {
+        const data = event.data;
+        if (!data) return;
+
+        if (data.type === "join_request" && isRoomHost) {
+            opponentSessionId = data.senderSessionId;
+            saveRoomState(code, { guestSessionId: opponentSessionId, status: "playing" });
+
+            roomChannel.postMessage({
+                type: "join_accept",
+                hostSessionId: sessionId,
+                terrainLayout
+            });
+
+            lobbyModal.classList.add("hidden");
+            setLobbyControlsDisabled(false);
+        } else if (data.type === "join_accept" && !isRoomHost) {
+            clearTimeout(joinTimeoutId);
+            terrainLayout = data.terrainLayout || terrainLayout;
+            createBoard();
+
+            lobbyModal.classList.add("hidden");
+            setLobbyControlsDisabled(false);
+            updateTurnUI();
+        } else {
+            handleRemoteAction(data);
+        }
+    };
+}
+
+function createRoom() {
+    if (!supportsLocalMultiplayer) {
+        setLobbyStatus("BroadcastChannel not supported in this browser.", "error");
+        return;
+    }
+
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    isRoomHost = true;
+    myTeam = "blue";
+    currentTurn = "blue";
+
+    terrainLayout = buildTerrainLayout(code);
+    saveRoomState(code, {
+        hostSessionId: sessionId,
+        terrainLayout,
+        turn: "blue",
+        status: "waiting"
+    });
+
+    initRoomChannel(code);
+    createBoard();
+    updateTurnUI();
+
+    setLobbyStatus(`Room created! Share code: ${code}. Waiting for player...`, "info");
+    setLobbyControlsDisabled(true);
+}
+
+function joinRoom() {
+    if (!supportsLocalMultiplayer) {
+        setLobbyStatus("BroadcastChannel not supported in this browser.", "error");
+        return;
+    }
+
+    const code = roomCodeInput.value.trim();
+    if (code.length !== 4 || isNaN(code)) {
+        setLobbyStatus("Please enter a valid 4-digit numeric code.", "error");
+        return;
+    }
+
+    const state = getRoomState(code);
+    if (!state) {
+        setLobbyStatus("Room not found or expired.", "error");
+        return;
+    }
+
+    isRoomHost = false;
+    myTeam = "red";
+    currentTurn = state.turn || "blue";
+
+    initRoomChannel(code);
+
+    setLobbyStatus("Connecting to room...", "info");
+    setLobbyControlsDisabled(true);
+
+    roomChannel.postMessage({
+        type: "join_request",
+        senderSessionId: sessionId
+    });
+
+    joinTimeoutId = setTimeout(() => {
+        setLobbyStatus("Host did not respond. Try again.", "error");
+        setLobbyControlsDisabled(false);
+    }, 4000);
+}
+
+// ==================== BOARD SETUP ====================
 
 function createBoard() {
     board.innerHTML = "";
 
-    for (let y = 10; y >= 1; y--) {
+    for (let y = 1; y <= 10; y++) {
         for (let x = 1; x <= 10; x++) {
             const tile = document.createElement("div");
+            tile.className = "tile pop-up";
 
-            tile.className = "tile grass";
+            let tileType = "grass";
+            if (terrainLayout.fire.x === x && terrainLayout.fire.y === y) tileType = "fire";
+            if (terrainLayout.water.x === x && terrainLayout.water.y === y) tileType = "water";
+            if (terrainLayout.ice.x === x && terrainLayout.ice.y === y) tileType = "ice";
+
+            tile.classList.add(tileType);
+            tile.dataset.type = tileType;
             tile.dataset.position = `${x},${y}`;
             tile.dataset.x = x;
             tile.dataset.y = y;
-            tile.dataset.type = "Grass";
-
-            if (x === terrainLayout.fire.x && y === terrainLayout.fire.y) { tile.className = "tile fire"; tile.dataset.type = "Fire"; }
-            if (x === terrainLayout.water.x && y === terrainLayout.water.y) { tile.className = "tile water"; tile.dataset.type = "Water"; }
-            if (x === terrainLayout.ice.x && y === terrainLayout.ice.y) { tile.className = "tile ice"; tile.dataset.type = "Ice"; }
 
             board.appendChild(tile);
 
-            tile.addEventListener("click", function() {
-                showTileInfo(tile, x, y);
-                if (tile.dataset.cardId) {
-                    showCardInfo(getCardFromTile(tile), tile.dataset.team);
-                } else if (!selectedCard) {
-                    hideCardInfo();
-                }
+            tile.addEventListener("click", () => {
+                if (currentTurn !== myTeam) return;
 
-                const canAct = myTeam && currentTurn && currentTurn === myTeam;
-                if (!canAct) return;
+                // Show information for the clicked tile
+                showTileInfo(tile);
 
-                if (selectedBoardCard && tile.classList.contains("target") && tile.dataset.cardId) {
-                    // Check if unit has enough AP to attack
-                    if (selectedBoardCard.ap <= 0) {
-                        return;
-                    }
+                // 1. Attack action execution (Stage 2)
+                if (selectedBoardTile && (tile.classList.contains("target") || tile.classList.contains("targets"))) {
+                    const attacker = getCardFromTile(selectedBoardTile);
+                    if (!attacker || attacker.ap <= 0) return;
 
-                    const attX = Number(selectedBoardTile.dataset.x);
-                    const attY = Number(selectedBoardTile.dataset.y);
+                    const attackerX = Number(selectedBoardTile.dataset.x);
+                    const attackerY = Number(selectedBoardTile.dataset.y);
+                    const defenderX = x;
+                    const defenderY = y;
 
                     attackCard(selectedBoardTile, tile);
+                    emitAction("attack", { attackerX, attackerY, defenderX, defenderY });
 
-                    // Deduct 1 AP from the attacking unit
-                    const newAp = Math.max(0, selectedBoardCard.ap - 1);
-                    updateCardStats(selectedBoardTile, { ap: newAp });
-
-                    emitAction("attack", { attX, attY, defX: x, defY: y });
                     clearSelectionState();
+                    hideCardInfo();
                     return;
                 }
-                
-                // Move card to a valid tile //
-                if (selectedBoardCard && tile.classList.contains("selected") && !tile.dataset.cardId) {
+
+                // 2. Move action execution (Stage 1)
+                if (selectedBoardTile && tile.classList.contains("in-move")) {
+                    const unit = getCardFromTile(selectedBoardTile);
+                    if (!unit || unit.ap <= 0) return;
+
                     const fromX = Number(selectedBoardTile.dataset.x);
                     const fromY = Number(selectedBoardTile.dataset.y);
+                    const toX = x;
+                    const toY = y;
 
-                    if (selectedBoardCard.ap <= 0) {
+                    moveCard(selectedBoardTile, tile);
+                    emitAction("move", { fromX, fromY, toX, toY });
+
+                    clearSelectionState();
+                    hideCardInfo();
+                    return;
+                }
+
+                // 3. 3-Stage Selection Cycle for player's own cards
+                if (tile.dataset.cardId && tile.dataset.team === myTeam) {
+                    const card = getCardFromTile(tile);
+
+                    if (selectedBoardTile === tile) {
+                        const unitMove = card.move || 1;
+                        const unitRange = card.range || 1;
+
+                        if (selectionState === 1) {
+                            hideValidTiles(x, y, unitMove);
+                            if (card.ap > 0) {
+                                showValidTargets(x, y, unitRange);
+                            }
+                            selectionState = 2;
+                        } else if (selectionState === 2) {
+                            clearSelectionState();
+                            hideCardInfo();
+                        }
                         return;
                     }
 
-                    moveCard(selectedBoardTile, tile);
-
-                    // Get reference to the newly moved tile and update its AP
-                    const movedCard = getCardFromTile(tile);
-                    const newAp = Math.max(0, movedCard.ap - 1);
-                    updateCardStats(tile, { ap: newAp });
-
-                    emitAction("move", { fromX, fromY, toX: x, toY: y });
                     clearSelectionState();
-                    return;
-                }
-
-                if (selectedBoardTile === tile) {
-                    clearSelectionState();
-                    return;
-                }
-
-                if (tile.dataset.cardId && tile.dataset.team === myTeam) {
-                    const card = getCardFromTile(tile);
-                    showCardInfo(card, tile.dataset.team);
-
-                    if (selectedBoardTile) {
-                        const oldx = Number(selectedBoardTile.dataset.x);
-                        const oldy = Number(selectedBoardTile.dataset.y);
-                        hideValidMoves(oldx, oldy, selectedBoardCard.move || 1);
-                        hideValidTargets(oldx, oldy, selectedBoardCard.range || 1);
-                    }
+                    showTileInfo(tile); // Re-trigger tile info after selection clear
 
                     selectedBoardCard = card;
                     selectedBoardTile = tile;
-                    showValidMoves(x, y, card.move || 1);
-                    showValidTargets(x, y, card.range || 1);
+                    selectionState = 1;
+
+                    showCardInfo(card, tile.dataset.team);
+
+                    if (card.ap > 0) {
+                        showValidMoves(x, y, card.move || 1);
+                    }
                     return;
                 }
 
+                // 4. Inspect enemy card stats when clicked directly
+                if (tile.dataset.cardId && tile.dataset.team !== myTeam) {
+                    clearSelectionState();
+                    showTileInfo(tile);
+                    const card = getCardFromTile(tile);
+                    showCardInfo(card, tile.dataset.team);
+                    return;
+                }
+
+                // 5. Shop card placement
                 if (selectedCard && !tile.dataset.cardId) {
                     if (playerEnergy < selectedCard.cost) {
                         if (selectedCardElement) {
-                            // Trigger the red outline / shake animation
                             selectedCardElement.classList.add("invalid");
-
-                            // Optional: Remove 'invalid' class after animation finishes so it can trigger again on next click
                             setTimeout(() => selectedCardElement.classList.remove("invalid"), 300);
                         }
                         return;
                     }
 
-                    // 2. Deduct energy & place card
                     playerEnergy -= selectedCard.cost;
                     updateTurnUI();
 
                     placeCard(tile, selectedCard, myTeam);
                     emitAction("place", { x, y, cardId: selectedCard.id, team: myTeam });
 
-                    // 3. Cleanup shop selection
                     if (selectedCardElement) selectedCardElement.remove();
                     selectedCard = null;
                     selectedCardElement = null;
@@ -800,5 +654,11 @@ function createBoard() {
     }
 }
 
+// Event Listeners
+createRoomBtn.addEventListener("click", createRoom);
+joinRoomBtn.addEventListener("click", joinRoom);
+endTurnBtn.addEventListener("click", endTurn);
+
+// Initialize single player / initial board view
 createBoard();
 updateTurnUI();

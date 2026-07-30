@@ -394,7 +394,6 @@ p {
     padding: 6px 16px;
     font-weight: 700;
     font-size: 14px;
-    color: var(--gold);
     margin-bottom: 8px;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
 }
@@ -457,13 +456,20 @@ p {
 .tile:hover {
     cursor: pointer;
     filter: brightness(1.2);
-    transform: translateY(-5px) translateZ(4px);
+    transform: translateY(-4px) translateZ(3px);
 }
 
-.tile.selected {
+.tile.in-move {
     border: 3px solid var(--gold);
     box-shadow: 0 5px 0 #b39700, 0 0 16px var(--gold);
     transform: translateY(-3px);
+    cursor: pointer;
+}
+
+.tile.in-range {
+    border: 3px dashed var(--red);
+    box-shadow: 0 5px 0 #8b0000, 0 0 12px rgba(255, 77, 79, 0.4);
+    transform: translateY(-2px);
 }
 
 .tile.target {
@@ -471,7 +477,13 @@ p {
     box-shadow: 0 5px 0 var(--red), 0 0 16px var(--red);
     transform: translateY(-3px);
     animation: tile-shake 0.6s infinite ease-in-out;
+    cursor: pointer !important;
 }
+
+.tile.selected {
+    cursor: pointer !important;
+}
+
 
 .grass { background: var(--tile-color); box-shadow: 0 5px 0 #2d4a25, 0 6px 10px rgba(0,0,0,0.3); }
 .water { background: #007bff; box-shadow: 0 5px 0 #004b9b, 0 6px 10px rgba(0,0,0,0.3); }
