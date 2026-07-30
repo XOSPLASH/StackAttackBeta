@@ -60,7 +60,10 @@ function buildTerrainLayout(seed = "solo") {
         return x - Math.floor(x);
     };
 
-    const fireIndex = Math.floor(getPseudoRandom(1) * 100);
+    let fireIndex = Math.floor(getPseudoRandom(1) * 100);
+    while (fireIndex < 0 || fireIndex >= 100) {
+        fireIndex = Math.floor(getPseudoRandom(1) * 100);
+    }
     let waterIndex = Math.floor(getPseudoRandom(2) * 100);
     while (waterIndex === fireIndex) {
         waterIndex = Math.floor(getPseudoRandom(3) * 100);
@@ -86,7 +89,7 @@ function getTile(x, y) {
 function getCardFromTile(tile) {
     if (!tile || !tile.dataset.cardId) return null;
     return {
-        id: Number(tile.dataset.cardId),
+        id: String(tile.dataset.cardId), // Kept as string for named IDs
         name: tile.dataset.cardName,
         icon: tile.dataset.cardIcon,
         health: Number(tile.dataset.cardHealth),
@@ -114,7 +117,7 @@ function showTileInfo(tile) {
     if (tileType) {
         tileType.classList.remove("hidden");
         const typeStr = tile.dataset.type || "grass";
-        tileType.textContent = `Tile Type: ${typeStr.charAt(0).toUpperCase() + typeStr.slice(1)}`;
+        tileType.textContent = `Tile: ${typeStr.charAt(0).toUpperCase() + typeStr.slice(1)}`;
     }
 
     if (tilePosition) {
@@ -543,9 +546,6 @@ function createBoard() {
             board.appendChild(tile);
 
             tile.addEventListener("click", () => {
-                if (currentTurn !== myTeam) return;
-
-                // Show information for the clicked tile
                 showTileInfo(tile);
 
                 // 1. Attack action execution (Stage 2)
@@ -621,7 +621,7 @@ function createBoard() {
                 }
 
                 // 4. Inspect enemy card stats when clicked directly
-                if (tile.dataset.cardId && tile.dataset.team !== myTeam) {
+                if (tile.dataset.cardId) {
                     clearSelectionState();
                     showTileInfo(tile);
                     const card = getCardFromTile(tile);

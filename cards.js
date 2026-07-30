@@ -1,6 +1,8 @@
 const cards = [
+
+    // Warrior
     {   
-        id: 1,
+        id: "warrior",
         name: "Warrior",
         icon: "⚔️",
         type: "Unit",
@@ -12,57 +14,46 @@ const cards = [
         range: 1,
         move: 2,
         ap: 2,
-        cost: 2
+        cost: 1
     },
+
+    // Archer
     {
-        id: 2,
+        id: "archer",
         name: "Archer",
         icon: "🏹",
         type: "Unit",
         rarity: "Common",
         ability: "Piercing Shot",
         description: "A ranged attacker that strikes enemies from a distance.",
-        health: 60,
-        damage: 15,
+        health: 80,
+        damage: 30,
         range: 3,
         move: 1,
         ap: 2,
         cost: 2
     },
-    {
-        id: 3,
-        name: "Tank",
-        icon: "🛡️",
-        type: "Unit",
-        rarity: "Rare",
-        ability: "None",
-        description: "A durable fighter that can absorb heavy damage.",
-        health: 180,
-        damage: 10,
-        range: 1,
-        move: 1,
-        ap: 2,
-        cost: 5
-    },
 
+    // Mage
     {
-        id: 4,
+        id: "mage",
         name: "Mage",
         icon: "🔮",
         type: "Unit",
         rarity: "Rare",
         ability: "Fireball",
         description: "A powerful spellcaster that can deal massive damage.",
-        health: 120,
+        health: 100,
         damage: 25,
         range: 2,
         move: 1,
-        ap: 2,
-        cost: 4
+        ap: 3,
+        cost: 3
     },
 
+    // Ninja
     {
-        id: 5,
+        id: "ninja",
         name: "Ninja",
         icon: "🥷",
         type: "Unit",
@@ -75,5 +66,22 @@ const cards = [
         move: 3,
         ap: 3,
         cost: 4
+    },
+
+    // Tank
+    {
+        id: "tank",
+        name: "Tank",
+        icon: "🛡️",
+        type: "Unit",
+        rarity: "Rare",
+        ability: "None",
+        description: "A durable fighter that can absorb heavy damage.",
+        health: 200,
+        damage: 40,
+        range: 1,
+        move: 1,
+        ap: 2,
+        cost: 5
     }
 ];
