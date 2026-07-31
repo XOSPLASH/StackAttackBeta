@@ -89,7 +89,6 @@ html, body {
 
 .lobby-card h2 {
     margin: 0;
-    color: var(--gold);
     font-size: 22px;
 }
 
@@ -192,7 +191,7 @@ html, body {
 }
 
 .secondary-btn {
-    background: var(--gold);
+    background: var(--card-color);
     color: var(--text-dark);
 }
 

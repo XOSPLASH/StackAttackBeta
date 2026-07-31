@@ -3,13 +3,12 @@ const ROOM_TTL_MS = 30 * 60 * 1000;
 const supportsLocalMultiplayer = typeof BroadcastChannel !== "undefined";
 const sessionId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+let peer = null;
+let conn = null;
 let myTeam = null;
 let currentTurn = null;
 let currentRoom = null;
-let roomChannel = null;
 let isRoomHost = false;
-let opponentSessionId = null;
-let joinTimeoutId = null;
 
 // 0 = Deselected, 1 = Move Stage (.in-move), 2 = Attack Stage (.in-range & .target)
 let selectionState = 0; 
@@ -346,17 +345,16 @@ function endTurn() {
 }
 
 function emitAction(type, payload = {}) {
-    if (!roomChannel) return;
+    if (!conn || !conn.open) return;
 
     const actionData = {
         type,
-        senderSessionId: sessionId,
         team: myTeam,
         payload
     };
 
-    roomChannel.postMessage(actionData);
-    saveRoomState(currentRoom, { lastAction: actionData, turn: currentTurn });
+    // Send action directly over PeerJS connection
+    conn.send(actionData);
 }
 
 function handleRemoteAction(data) {
@@ -457,69 +455,90 @@ function initRoomChannel(code) {
     };
 }
 
+// Initialize host room using a 4-digit code as Peer ID
 function createRoom() {
-    if (!supportsLocalMultiplayer) {
-        setLobbyStatus("BroadcastChannel not supported in this browser.", "error");
-        return;
-    }
-
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     isRoomHost = true;
     myTeam = "blue";
     currentTurn = "blue";
+    currentRoom = code;
 
-    terrainLayout = buildTerrainLayout(code);
-    saveRoomState(code, {
-        hostSessionId: sessionId,
-        terrainLayout,
-        turn: "blue",
-        status: "waiting"
+    setLobbyStatus(`Creating room ${code}...`, "info");
+
+    // Initialize PeerJS host with 4-digit ID
+    peer = new Peer(code);
+
+    peer.on("open", (id) => {
+        setLobbyStatus(`Room active! Share code: ${id}. Waiting for opponent...`, "info");
     });
 
-    initRoomChannel(code);
-    createBoard();
-    updateTurnUI();
+    peer.on("connection", (connection) => {
+        conn = connection;
+        setupConnectionListeners();
 
-    setLobbyStatus(`Room created! Share code: ${code}. Waiting for player...`, "info");
-    setLobbyControlsDisabled(true);
+        // Host generates terrain and sends initial game setup to joining player
+        terrainLayout = buildTerrainLayout(code);
+        createBoard();
+        updateTurnUI();
+
+        conn.on("open", () => {
+            conn.send({
+                type: "initGame",
+                terrainLayout: terrainLayout
+            });
+            lobbyModal.classList.add("hidden");
+        });
+    });
+
+    peer.on("error", (err) => {
+        setLobbyStatus("Error: Code taken or network issue. Try again.", "error");
+    });
 }
 
+// Join room using Host's 4-digit code
 function joinRoom() {
-    if (!supportsLocalMultiplayer) {
-        setLobbyStatus("BroadcastChannel not supported in this browser.", "error");
-        return;
-    }
-
     const code = roomCodeInput.value.trim();
-    if (code.length !== 4 || isNaN(code)) {
-        setLobbyStatus("Please enter a valid 4-digit numeric code.", "error");
-        return;
-    }
-
-    const state = getRoomState(code);
-    if (!state) {
-        setLobbyStatus("Room not found or expired.", "error");
+    if (!code || code.length !== 4) {
+        setLobbyStatus("Enter a valid 4-digit code.", "error");
         return;
     }
 
     isRoomHost = false;
     myTeam = "red";
-    currentTurn = state.turn || "blue";
+    currentTurn = "blue";
+    currentRoom = code;
 
-    initRoomChannel(code);
+    setLobbyStatus(`Connecting to room ${code}...`, "info");
 
-    setLobbyStatus("Connecting to room...", "info");
-    setLobbyControlsDisabled(true);
+    // Initialize guest peer with random ID
+    peer = new Peer();
 
-    roomChannel.postMessage({
-        type: "join_request",
-        senderSessionId: sessionId
+    peer.on("open", () => {
+        conn = peer.connect(code);
+        setupConnectionListeners();
     });
 
-    joinTimeoutId = setTimeout(() => {
-        setLobbyStatus("Host did not respond. Try again.", "error");
-        setLobbyControlsDisabled(false);
-    }, 4000);
+    peer.on("error", (err) => {
+        setLobbyStatus("Could not connect to room. Check code.", "error");
+    });
+}
+
+// Setup data transmission event listeners between players
+function setupConnectionListeners() {
+    conn.on("data", (data) => {
+        if (data.type === "initGame") {
+            terrainLayout = data.terrainLayout;
+            createBoard();
+            updateTurnUI();
+            lobbyModal.classList.add("hidden");
+        } else {
+            handleRemoteAction(data);
+        }
+    });
+
+    conn.on("close", () => {
+        alert("Opponent disconnected.");
+    });
 }
 
 // ==================== BOARD SETUP ====================
